@@ -13,7 +13,7 @@
 **The Universal AI Career Coach for Every Profession.**
 _From Software Engineers to Surgeons, Lawyers to Artists._
 
-Developed by **[keshu_codes](https://github.com/keshu_codes)**
+Developed by **[keshu-codes](https://github.com/keshu-codes)**
 
 </div>
 
@@ -102,6 +102,6 @@ To run this project locally:
 ### 1. Clone the Repository
 
 ```bash
-git clone [https://github.com/keshu_codes/skillbridge-ai.git](https://github.com/keshu_codes/skillbridge-ai.git)
+git clone [https://github.com/keshu-codes/skillbridge-ai.git](https://github.com/keshu-codes/skillbridge-ai.git)
 cd skillbridge-ai
 ```
