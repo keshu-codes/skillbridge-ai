@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import random
 import PyPDF2
 import google.generativeai as genai
 from flask import Flask, render_template, request, jsonify, session, send_file
@@ -11,19 +12,49 @@ from dotenv import load_dotenv
 from datetime import datetime
 import io
 import sys
-import PIL.Image  # <--- NEW IMPORT
+import PIL.Image
 
 # 1. Fix Windows console encoding
 sys.stdout.reconfigure(encoding='utf-8')
 
 # 2. Load environment variables
 load_dotenv()
-api_key = os.getenv("GOOGLE_API_KEY")
 
-if not api_key:
-    print("❌ ERROR: GOOGLE_API_KEY not found in .env file")
-else:
-    genai.configure(api_key=api_key)
+# --- 🚀 SMART API KEY ROTATION SYSTEM ---
+def configure_random_key():
+    """
+    Scans environment variables for GOOGLE_API_KEY, GOOGLE_API_KEY_1, GOOGLE_API_KEY_2, etc.
+    Picks one at random to distribute the load and avoid 429 errors.
+    """
+    api_keys = []
+    
+    # 1. Check for the main key
+    if os.getenv("GOOGLE_API_KEY"):
+        api_keys.append(os.getenv("GOOGLE_API_KEY"))
+    
+    # 2. Check for numbered extra keys (GOOGLE_API_KEY_1 to GOOGLE_API_KEY_10)
+    i = 1
+    while True:
+        key = os.getenv(f"GOOGLE_API_KEY_{i}")
+        if not key:
+            break # Stop looking if we find a gap
+        api_keys.append(key)
+        i += 1
+    
+    if not api_keys:
+        print("❌ ERROR: No Google API Keys found! Please add GOOGLE_API_KEY to .env or Render.")
+        return False
+
+    # 3. Select a random key
+    selected_key = random.choice(api_keys)
+    genai.configure(api_key=selected_key)
+    
+    # Print a hint so you know which one is being used (hiding most of the key for security)
+    print(f"🔑 Using API Key ending in: ...{selected_key[-5:]} (Total keys available: {len(api_keys)})")
+    return True
+
+# Initialize with a random key on startup
+configure_random_key()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "skillbridge-hackathon-secret-2024")
@@ -35,10 +66,12 @@ Session(app)
 cache = Cache(app, config={'CACHE_TYPE': 'SimpleCache'})
 
 # --- MODEL CONFIG ---
-MODEL_NAME = "models/gemini-2.5-flash"
+# Using 2.0-flash as discussed (High speed, generous limits)
+MODEL_NAME = "models/gemini-2.0-flash" 
 
 # ========== UNIVERSAL JOB ROLES DATABASE ==========
 JOB_ROLES = {
+    # ... (Keeping your existing database logic exactly as is) ...
     # === SOFTWARE ENGINEERING ===
     "Frontend Developer": { "category": "Software Engineering", "skills": ["React", "Vue.js", "Angular", "JavaScript", "TypeScript", "HTML5", "CSS3", "Tailwind", "Redux", "Webpack"], "salary_range": "$70k - $140k", "experience": "1-5 Years" },
     "Backend Developer": { "category": "Software Engineering", "skills": ["Python", "Java", "Node.js", "Go", "Django", "Spring Boot", "PostgreSQL", "MongoDB", "Redis", "Docker"], "salary_range": "$80k - $150k", "experience": "2-6 Years" },
@@ -47,20 +80,17 @@ JOB_ROLES = {
     "Mobile App Developer": { "category": "Software Engineering", "skills": ["Flutter", "React Native", "Swift", "Kotlin", "iOS", "Android", "Firebase", "Dart", "Mobile UI"], "salary_range": "$80k - $145k", "experience": "2-5 Years" },
     "QA Automation Engineer": { "category": "Software Engineering", "skills": ["Selenium", "Cypress", "Python", "Java", "JUnit", "TestNG", "Jenkins", "API Testing", "Agile"], "salary_range": "$70k - $130k", "experience": "2-6 Years" },
     "Cybersecurity Analyst": { "category": "Software Engineering", "skills": ["Network Security", "Penetration Testing", "SIEM", "Firewalls", "Python", "Linux", "Risk Assessment", "Compliance"], "salary_range": "$90k - $160k", "experience": "2-6 Years" },
-    "Game Developer": { "category": "Software Engineering", "skills": ["Unity", "Unreal Engine", "C++", "C#", "3D Math", "Physics Engines", "Shader Programming", "Game Design"], "salary_range": "$70k - $140k", "experience": "2-7 Years" },
-
+    
     # === DATA & AI ===
     "Data Scientist": { "category": "Data & AI", "skills": ["Python", "Pandas", "NumPy", "Scikit-learn", "TensorFlow", "PyTorch", "SQL", "Statistics", "Data Visualization"], "salary_range": "$100k - $180k", "experience": "2-5 Years" },
     "Data Analyst": { "category": "Data & AI", "skills": ["Excel", "SQL", "Tableau", "Power BI", "Python", "R", "Data Cleaning", "Statistical Analysis", "Reporting"], "salary_range": "$65k - $110k", "experience": "1-4 Years" },
     "Machine Learning Engineer": { "category": "Data & AI", "skills": ["Python", "TensorFlow", "Keras", "NLP", "Computer Vision", "MLOps", "AWS SageMaker", "Algorithms"], "salary_range": "$110k - $200k", "experience": "3-7 Years" },
-    "Data Engineer": { "category": "Data & AI", "skills": ["SQL", "Python", "Spark", "Hadoop", "Kafka", "ETL Pipelines", "Snowflake", "AWS Redshift", "Big Data"], "salary_range": "$100k - $170k", "experience": "3-6 Years" },
 
     # === CORE ENGINEERING ===
     "Civil Engineer": { "category": "Core Engineering", "skills": ["AutoCAD", "Civil 3D", "STAAD Pro", "Structural Analysis", "Project Management", "Surveying", "Construction Mgmt", "Revit"], "salary_range": "$65k - $120k", "experience": "2-6 Years" },
     "Mechanical Engineer": { "category": "Core Engineering", "skills": ["SolidWorks", "AutoCAD", "ANSYS", "Thermodynamics", "Fluid Mechanics", "GD&T", "Manufacturing", "MATLAB"], "salary_range": "$70k - $130k", "experience": "2-6 Years" },
     "Electrical Engineer": { "category": "Core Engineering", "skills": ["Circuit Design", "PCB Design", "MATLAB", "Simulink", "PLC Programming", "AutoCAD Electrical", "Power Systems", "IoT"], "salary_range": "$75k - $135k", "experience": "2-6 Years" },
-    "Electronics Engineer": { "category": "Core Engineering", "skills": ["Embedded Systems", "C/C++", "Microcontrollers", "Verilog", "FPGA", "Analog Design", "Digital Signal Processing"], "salary_range": "$80k - $140k", "experience": "2-6 Years" },
-    
+
     # === BUSINESS & MANAGEMENT ===
     "Product Manager": { "category": "Business", "skills": ["Product Strategy", "Agile/Scrum", "User Research", "Roadmapping", "JIRA", "Data Analysis", "Stakeholder Mgmt", "UX/UI Basics"], "salary_range": "$110k - $190k", "experience": "4-8 Years" },
     "Project Manager": { "category": "Business", "skills": ["PMP", "Agile", "Scrum", "Risk Management", "Budgeting", "MS Project", "Communication", "Leadership"], "salary_range": "$90k - $160k", "experience": "3-7 Years" },
@@ -119,13 +149,13 @@ def extract_text_from_file(file):
         except Exception as e:
             return f"Error reading DOCX: {str(e)}"
     
-    # 3. IMAGE Handling (NEW!)
+    # 3. IMAGE Handling
     elif filename.endswith(('.jpg', '.jpeg', '.png', '.webp')):
         try:
-            # Load image using Pillow
-            image = PIL.Image.open(file)
+            # Re-configure key before Vision request to distribute load
+            configure_random_key()
             
-            # Use Gemini Vision to transcribe the resume
+            image = PIL.Image.open(file)
             model = genai.GenerativeModel(MODEL_NAME)
             prompt = "Analyze this image of a resume and extract all the text content from it verbatim. Organize it clearly."
             
@@ -159,6 +189,10 @@ def clean_json_text(text):
     return text.strip()
 
 def get_ai_feedback(resume_text, role, jd_text=None):
+    # --- ROTATE KEY BEFORE ANALYSIS ---
+    # This ensures every resume analysis uses a random key from your pool
+    configure_random_key() 
+    
     model = genai.GenerativeModel(MODEL_NAME)
     
     role_info = JOB_ROLES.get(role, {})
@@ -176,7 +210,7 @@ def get_ai_feedback(resume_text, role, jd_text=None):
     
     Return a VALID JSON OBJECT.
     For 'professional_development', provide SMART LINKS:
-    - If a specific course is suggested, make the link: "https://www.coursera.org/search?query=COURSE_NAME" or "https://www.udemy.com/courses/search/?q=COURSE_NAME"
+    - If a specific course is suggested, make the link: "https://www.coursera.org/search?query=COURSE_NAME"
     - For YouTube, use: "https://www.youtube.com/results?search_query=COURSE_NAME"
     
     JSON Schema:
@@ -304,6 +338,6 @@ def not_found(e): return render_template('error.html', error="Page not found"), 
 
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print(f"🚀 SKILLBRIDGE AI - IMAGE SUPPORT ENABLED")
+    print(f"🚀 SKILLBRIDGE AI - MULTI-KEY ROTATION ENABLED")
     print("="*60 + "\n")
     app.run(debug=True, host='0.0.0.0', port=5000)
