@@ -21,16 +21,24 @@ sys.stdout.reconfigure(encoding='utf-8')
 # 2. Load environment variables
 load_dotenv()
 
-# --- 🚀 SMART API KEY ROTATION SYSTEM ---
+# --- MODEL PRIORITY LIST ---
+# The system will try these models in this specific order.
+MODELS_TO_TRY = [
+    "models/gemini-1.5-flash",       # <--- Priority 1: Best balance of speed & quota
+    "models/gemini-flash-latest",    # <--- Priority 2: Backup alias
+    "models/gemini-1.5-flash-8b",    # <--- Priority 3: High speed / Low cost
+    "models/gemini-2.0-flash-exp"    # <--- Priority 4: Experimental (Use last due to limit:0 issues)
+]
+
+# --- 🚀 SMART API KEY MANAGEMENT ---
 def get_all_api_keys():
     """Collects all available API keys from environment variables."""
     api_keys = []
-    
-    # Check standard key
+    # 1. Check standard key
     if os.getenv("GOOGLE_API_KEY"):
         api_keys.append(os.getenv("GOOGLE_API_KEY"))
     
-    # Check numbered keys
+    # 2. Check numbered keys (GOOGLE_API_KEY_1, _2, etc.)
     i = 1
     while True:
         key = os.getenv(f"GOOGLE_API_KEY_{i}")
@@ -41,58 +49,67 @@ def get_all_api_keys():
         
     return api_keys
 
-def configure_random_key():
-    """Selects a random key to distribute load."""
+def initialize_any_key():
+    """Initializes Gemini with the first available key so the app starts."""
     keys = get_all_api_keys()
-    if not keys:
-        print("❌ ERROR: No Google API Keys found!")
-        return False
+    if keys:
+        genai.configure(api_key=keys[0])
+        return True
+    return False
 
-    selected_key = random.choice(keys)
-    genai.configure(api_key=selected_key)
-    print(f"🔑 Switched to API Key ending in: ...{selected_key[-5:]}")
-    return True
-
-# --- 🛡️ ROBUST AI CALLER WITH RETRY ---
+# --- 🛡️ ULTIMATE AI CALLER: SEQUENTIAL TRY ---
 def generate_with_retry(model, prompt_parts):
     """
-    Tries to generate content. If it hits a 429 (Quota) error,
-    it automatically switches to a new key and retries up to 5 times.
+    1. Iterates through MODELS in priority order.
+    2. For each model, iterates through ALL AVAILABLE KEYS.
+    3. Only moves to the next model if ALL keys fail for the current one.
     """
-    max_retries = 6  # Try enough times to cycle through all your keys
+    all_keys = get_all_api_keys()
     
-    for attempt in range(max_retries):
-        try:
-            # 1. Configure a (potentially new) key
-            configure_random_key()
-            
-            # 2. Re-initialize model with new key config
-            # (Use the experimental model which is FREE)
-            active_model = genai.GenerativeModel("models/gemini-2.0-flash-exp")
-            
-            # 3. Attempt generation
-            response = active_model.generate_content(prompt_parts)
-            return response
-            
-        except Exception as e:
-            error_msg = str(e)
-            print(f"⚠️ Attempt {attempt+1} failed: {error_msg}")
-            
-            # If it's a Quota error (429), we retry. If it's something else, we might still retry just in case.
-            if "429" in error_msg or "Quota" in error_msg:
-                print("♻️ Quota hit! Switching key and retrying immediately...")
-                time.sleep(1) # Short pause to let things settle
-                continue
-            else:
-                # If it's a different error, try one more time then fail
-                if attempt == max_retries - 1:
-                    raise e
+    if not all_keys:
+        raise Exception("❌ NO API KEYS FOUND. Please add GOOGLE_API_KEY to Render.")
+
+    # LOOP 1: Go through Models in your priority order
+    for model_name in MODELS_TO_TRY:
+        print(f"\n🔄 PRIORITY CHECK: Attempting Model '{model_name}'...")
+        
+        # LOOP 2: Go through EVERY single key for this model
+        for key_index, key in enumerate(all_keys):
+            try:
+                # Configure with the specific key for this attempt
+                genai.configure(api_key=key)
+                
+                # Set up the model
+                active_model = genai.GenerativeModel(model_name)
+                
+                # Attempt generation
+                # print(f"   Key #{key_index+1}: Connecting...")
+                response = active_model.generate_content(prompt_parts)
+                
+                # If we get here, it WORKED! Return immediately.
+                print(f"   ✅ SUCCESS! Connected to {model_name} using Key #{key_index+1}")
+                return response
+                
+            except Exception as e:
+                error_msg = str(e)
+                # print(f"   ⚠️ Key #{key_index+1} failed: {error_msg}")
+                
+                # If it's a 404 (Model Not Found), this model won't work with ANY key.
+                if "404" in error_msg or "not found" in error_msg.lower():
+                    print(f"   🚫 {model_name} is not available. Skipping to next model.")
+                    break # Break inner loop -> Go to next model
+                
+                # If it's a Quota error (429), we just continue to the next key in the loop.
                 continue
 
-    raise Exception("All API keys failed after multiple retries.")
+        # If we finish the key loop, it means this model failed on ALL keys.
+        print(f"❌ Model '{model_name}' exhausted all keys. Switching to next model...\n")
 
-# Initialize
-configure_random_key()
+    # If we exit both loops, we truly have no options left.
+    raise Exception("❌ SYSTEM FAILURE: All models and all keys were exhausted.")
+
+# Initialize startup
+initialize_any_key()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "skillbridge-hackathon-secret-2024")
@@ -103,51 +120,57 @@ CORS(app)
 Session(app)
 cache = Cache(app, config={'CACHE_TYPE': 'SimpleCache'})
 
-# --- JOB ROLES DATABASE ---
+# ==========================================
+# 🌍 UNIVERSAL JOB ROLES DATABASE (FULL)
+# ==========================================
 JOB_ROLES = {
-    # === SOFTWARE ENGINEERING ===
-    "Frontend Developer": { "category": "Software Engineering", "skills": ["React", "Vue.js", "Angular", "JavaScript", "TypeScript", "HTML5", "CSS3", "Tailwind", "Redux", "Webpack"], "salary_range": "$70k - $140k", "experience": "1-5 Years" },
-    "Backend Developer": { "category": "Software Engineering", "skills": ["Python", "Java", "Node.js", "Go", "Django", "Spring Boot", "PostgreSQL", "MongoDB", "Redis", "Docker"], "salary_range": "$80k - $150k", "experience": "2-6 Years" },
-    "Full Stack Developer": { "category": "Software Engineering", "skills": ["MERN Stack", "Next.js", "Python", "SQL", "NoSQL", "AWS", "REST APIs", "GraphQL", "Git", "CI/CD"], "salary_range": "$90k - $160k", "experience": "3-7 Years" },
-    "DevOps Engineer": { "category": "Software Engineering", "skills": ["AWS", "Azure", "Kubernetes", "Docker", "Jenkins", "Terraform", "Ansible", "Linux", "Bash Scripting", "Monitoring"], "salary_range": "$100k - $170k", "experience": "3-8 Years" },
-    "Mobile App Developer": { "category": "Software Engineering", "skills": ["Flutter", "React Native", "Swift", "Kotlin", "iOS", "Android", "Firebase", "Dart", "Mobile UI"], "salary_range": "$80k - $145k", "experience": "2-5 Years" },
-    "QA Automation Engineer": { "category": "Software Engineering", "skills": ["Selenium", "Cypress", "Python", "Java", "JUnit", "TestNG", "Jenkins", "API Testing", "Agile"], "salary_range": "$70k - $130k", "experience": "2-6 Years" },
-    "Cybersecurity Analyst": { "category": "Software Engineering", "skills": ["Network Security", "Penetration Testing", "SIEM", "Firewalls", "Python", "Linux", "Risk Assessment", "Compliance"], "salary_range": "$90k - $160k", "experience": "2-6 Years" },
-    
-    # === DATA & AI ===
-    "Data Scientist": { "category": "Data & AI", "skills": ["Python", "Pandas", "NumPy", "Scikit-learn", "TensorFlow", "PyTorch", "SQL", "Statistics", "Data Visualization"], "salary_range": "$100k - $180k", "experience": "2-5 Years" },
-    "Data Analyst": { "category": "Data & AI", "skills": ["Excel", "SQL", "Tableau", "Power BI", "Python", "R", "Data Cleaning", "Statistical Analysis", "Reporting"], "salary_range": "$65k - $110k", "experience": "1-4 Years" },
-    "Machine Learning Engineer": { "category": "Data & AI", "skills": ["Python", "TensorFlow", "Keras", "NLP", "Computer Vision", "MLOps", "AWS SageMaker", "Algorithms"], "salary_range": "$110k - $200k", "experience": "3-7 Years" },
+    # === SOFTWARE & IT ===
+    "Frontend Developer": { "category": "IT & Software", "skills": ["React", "Vue.js", "Angular", "JavaScript", "TypeScript", "HTML5", "CSS3", "Tailwind", "Redux", "Webpack"], "salary_range": "$70k - $140k", "experience": "1-5 Years" },
+    "Backend Developer": { "category": "IT & Software", "skills": ["Python", "Java", "Node.js", "Go", "Django", "Spring Boot", "PostgreSQL", "MongoDB", "Redis", "Docker"], "salary_range": "$80k - $150k", "experience": "2-6 Years" },
+    "Full Stack Developer": { "category": "IT & Software", "skills": ["MERN Stack", "Next.js", "Python", "SQL", "NoSQL", "AWS", "REST APIs", "GraphQL", "Git", "CI/CD"], "salary_range": "$90k - $160k", "experience": "3-7 Years" },
+    "DevOps Engineer": { "category": "IT & Software", "skills": ["AWS", "Azure", "Kubernetes", "Docker", "Jenkins", "Terraform", "Ansible", "Linux", "Bash Scripting"], "salary_range": "$100k - $170k", "experience": "3-8 Years" },
+    "Mobile App Developer": { "category": "IT & Software", "skills": ["Flutter", "React Native", "Swift", "Kotlin", "iOS", "Android", "Firebase", "Dart"], "salary_range": "$80k - $145k", "experience": "2-5 Years" },
+    "Cybersecurity Analyst": { "category": "IT & Software", "skills": ["Network Security", "Penetration Testing", "SIEM", "Firewalls", "Python", "Linux", "Risk Assessment"], "salary_range": "$90k - $160k", "experience": "2-6 Years" },
+    "Data Scientist": { "category": "Data & AI", "skills": ["Python", "Pandas", "NumPy", "Scikit-learn", "TensorFlow", "PyTorch", "SQL", "Statistics"], "salary_range": "$100k - $180k", "experience": "2-5 Years" },
+    "Machine Learning Engineer": { "category": "Data & AI", "skills": ["Python", "TensorFlow", "Keras", "NLP", "Computer Vision", "MLOps", "AWS SageMaker"], "salary_range": "$110k - $200k", "experience": "3-7 Years" },
 
     # === CORE ENGINEERING ===
-    "Civil Engineer": { "category": "Core Engineering", "skills": ["AutoCAD", "Civil 3D", "STAAD Pro", "Structural Analysis", "Project Management", "Surveying", "Construction Mgmt", "Revit"], "salary_range": "$65k - $120k", "experience": "2-6 Years" },
-    "Mechanical Engineer": { "category": "Core Engineering", "skills": ["SolidWorks", "AutoCAD", "ANSYS", "Thermodynamics", "Fluid Mechanics", "GD&T", "Manufacturing", "MATLAB"], "salary_range": "$70k - $130k", "experience": "2-6 Years" },
-    "Electrical Engineer": { "category": "Core Engineering", "skills": ["Circuit Design", "PCB Design", "MATLAB", "Simulink", "PLC Programming", "AutoCAD Electrical", "Power Systems", "IoT"], "salary_range": "$75k - $135k", "experience": "2-6 Years" },
+    "Civil Engineer": { "category": "Core Engineering", "skills": ["AutoCAD", "Civil 3D", "STAAD Pro", "Structural Analysis", "Project Management", "Surveying", "Revit"], "salary_range": "$65k - $120k", "experience": "2-6 Years" },
+    "Mechanical Engineer": { "category": "Core Engineering", "skills": ["SolidWorks", "AutoCAD", "ANSYS", "Thermodynamics", "Fluid Mechanics", "GD&T", "Manufacturing"], "salary_range": "$70k - $130k", "experience": "2-6 Years" },
+    "Electrical Engineer": { "category": "Core Engineering", "skills": ["Circuit Design", "PCB Design", "MATLAB", "Simulink", "PLC Programming", "AutoCAD Electrical", "Power Systems"], "salary_range": "$75k - $135k", "experience": "2-6 Years" },
+    "Chemical Engineer": { "category": "Core Engineering", "skills": ["Process Simulation", "Aspen Plus", "Thermodynamics", "Reaction Engineering", "Safety Standards", "MATLAB"], "salary_range": "$75k - $140k", "experience": "2-6 Years" },
 
     # === BUSINESS & MANAGEMENT ===
-    "Product Manager": { "category": "Business", "skills": ["Product Strategy", "Agile/Scrum", "User Research", "Roadmapping", "JIRA", "Data Analysis", "Stakeholder Mgmt", "UX/UI Basics"], "salary_range": "$110k - $190k", "experience": "4-8 Years" },
-    "Project Manager": { "category": "Business", "skills": ["PMP", "Agile", "Scrum", "Risk Management", "Budgeting", "MS Project", "Communication", "Leadership"], "salary_range": "$90k - $160k", "experience": "3-7 Years" },
+    "Product Manager": { "category": "Business", "skills": ["Product Strategy", "Agile/Scrum", "User Research", "Roadmapping", "JIRA", "Data Analysis", "Stakeholder Mgmt"], "salary_range": "$110k - $190k", "experience": "4-8 Years" },
+    "Project Manager": { "category": "Business", "skills": ["PMP", "Agile", "Scrum", "Risk Management", "Budgeting", "MS Project", "Communication"], "salary_range": "$90k - $160k", "experience": "3-7 Years" },
     "Business Analyst": { "category": "Business", "skills": ["SQL", "Excel", "Requirements Gathering", "Process Modeling", "UML", "Tableau", "Stakeholder Analysis"], "salary_range": "$75k - $125k", "experience": "2-5 Years" },
-    "Marketing Manager": { "category": "Business", "skills": ["Digital Marketing", "SEO", "Content Strategy", "Google Analytics", "Social Media", "Email Marketing", "Brand Mgmt"], "salary_range": "$70k - $140k", "experience": "3-7 Years" },
-    "HR Manager": { "category": "Business", "skills": ["Recruitment", "Employee Relations", "HRIS", "Labor Laws", "Performance Mgmt", "Onboarding", "Payroll"], "salary_range": "$70k - $130k", "experience": "4-8 Years" },
+    "Marketing Manager": { "category": "Business", "skills": ["Digital Marketing", "SEO", "Content Strategy", "Google Analytics", "Social Media", "Email Marketing"], "salary_range": "$70k - $140k", "experience": "3-7 Years" },
+    "HR Manager": { "category": "Business", "skills": ["Recruitment", "Employee Relations", "HRIS", "Labor Laws", "Performance Mgmt", "Onboarding"], "salary_range": "$70k - $130k", "experience": "4-8 Years" },
+    "Sales Representative": { "category": "Business", "skills": ["CRM", "Negotiation", "Lead Generation", "Communication", "Cold Calling", "Salesforce"], "salary_range": "$50k - $100k", "experience": "1-4 Years" },
 
     # === FINANCE ===
-    "Financial Analyst": { "category": "Finance", "skills": ["Financial Modeling", "Excel (Advanced)", "Forecasting", "Valuation", "SAP", "Accounting", "Bloomberg Terminal"], "salary_range": "$70k - $120k", "experience": "2-5 Years" },
-    "Investment Banker": { "category": "Finance", "skills": ["M&A", "LBO Modeling", "Valuation", "Due Diligence", "Capital Markets", "Client Advisory", "Pitchbooks"], "salary_range": "$120k - $250k+", "experience": "2-5 Years" },
-    "Chartered Accountant": { "category": "Finance", "skills": ["Auditing", "Taxation", "IFRS/GAAP", "Financial Reporting", "Internal Controls", "Compliance", "Budgeting"], "salary_range": "$75k - $150k", "experience": "3-6 Years" },
+    "Financial Analyst": { "category": "Finance", "skills": ["Financial Modeling", "Excel (Advanced)", "Forecasting", "Valuation", "SAP", "Accounting"], "salary_range": "$70k - $120k", "experience": "2-5 Years" },
+    "Investment Banker": { "category": "Finance", "skills": ["M&A", "LBO Modeling", "Valuation", "Due Diligence", "Capital Markets", "Pitchbooks"], "salary_range": "$120k - $250k+", "experience": "2-5 Years" },
+    "Chartered Accountant": { "category": "Finance", "skills": ["Auditing", "Taxation", "IFRS/GAAP", "Financial Reporting", "Internal Controls", "Compliance"], "salary_range": "$75k - $150k", "experience": "3-6 Years" },
 
-    # === MEDICAL & HEALTHCARE ===
-    "General Practitioner": { "category": "Healthcare", "skills": ["Diagnosis", "Patient Care", "Medical Records (EMR)", "Pharmacology", "Clinical Procedures", "Preventive Care"], "salary_range": "$150k - $250k", "experience": "Residency+" },
+    # === HEALTHCARE & SCIENCE ===
+    "General Practitioner": { "category": "Healthcare", "skills": ["Diagnosis", "Patient Care", "Medical Records (EMR)", "Pharmacology", "Clinical Procedures"], "salary_range": "$150k - $250k", "experience": "Residency+" },
     "Registered Nurse": { "category": "Healthcare", "skills": ["Patient Assessment", "Critical Care", "IV Therapy", "Medication Admin", "BLS/ACLS", "Compassion"], "salary_range": "$60k - $110k", "experience": "Licensure" },
-    "Pharmacist": { "category": "Healthcare", "skills": ["Pharmacology", "Dispensing", "Patient Counseling", "Drug Interactions", "Inventory Mgmt", "Compliance"], "salary_range": "$110k - $140k", "experience": "PharmD" },
+    "Pharmacist": { "category": "Healthcare", "skills": ["Pharmacology", "Dispensing", "Patient Counseling", "Drug Interactions", "Inventory Mgmt"], "salary_range": "$110k - $140k", "experience": "PharmD" },
+    "Biologist": { "category": "Science", "skills": ["Lab Techniques", "Data Analysis", "Microscopy", "Genetics", "Research", "PCR"], "salary_range": "$55k - $95k", "experience": "2-5 Years" },
+    "Chemist": { "category": "Science", "skills": ["HPLC", "Organic Chemistry", "Lab Safety", "Spectroscopy", "Analytical Chemistry"], "salary_range": "$60k - $100k", "experience": "2-5 Years" },
 
     # === LEGAL ===
-    "Corporate Lawyer": { "category": "Legal", "skills": ["Contract Law", "Mergers & Acquisitions", "Corporate Governance", "Negotiation", "Legal Drafting", "Compliance"], "salary_range": "$120k - $220k", "experience": "3-7 Years" },
+    "Corporate Lawyer": { "category": "Legal", "skills": ["Contract Law", "Mergers & Acquisitions", "Corporate Governance", "Negotiation", "Legal Drafting"], "salary_range": "$120k - $220k", "experience": "3-7 Years" },
     "Litigation Attorney": { "category": "Legal", "skills": ["Trial Advocacy", "Legal Research", "Depositions", "Civil Procedure", "Case Management", "Evidence"], "salary_range": "$100k - $190k", "experience": "3-7 Years" },
 
-    # === CREATIVE & DESIGN ===
-    "Graphic Designer": { "category": "Creative", "skills": ["Adobe Photoshop", "Illustrator", "InDesign", "Typography", "Branding", "Layout Design", "Creativity"], "salary_range": "$50k - $90k", "experience": "2-5 Years" },
-    "UI/UX Designer": { "category": "Creative", "skills": ["Figma", "Sketch", "Wireframing", "Prototyping", "User Research", "Interaction Design", "Adobe XD"], "salary_range": "$80k - $140k", "experience": "2-6 Years" }
+    # === CREATIVE, ARTS & EDUCATION ===
+    "Graphic Designer": { "category": "Creative", "skills": ["Adobe Photoshop", "Illustrator", "InDesign", "Typography", "Branding", "Layout Design"], "salary_range": "$50k - $90k", "experience": "2-5 Years" },
+    "UI/UX Designer": { "category": "Creative", "skills": ["Figma", "Sketch", "Wireframing", "Prototyping", "User Research", "Interaction Design"], "salary_range": "$80k - $140k", "experience": "2-6 Years" },
+    "Content Writer": { "category": "Creative", "skills": ["SEO", "Copywriting", "Editing", "Research", "Blogging", "CMS"], "salary_range": "$45k - $80k", "experience": "1-4 Years" },
+    "Teacher (K-12)": { "category": "Education", "skills": ["Curriculum Design", "Classroom Mgmt", "Lesson Planning", "Student Assessment", "Communication"], "salary_range": "$45k - $85k", "experience": "Certification" },
+    "University Professor": { "category": "Education", "skills": ["Research", "Lecturing", "Grant Writing", "Mentoring", "Academic Publishing"], "salary_range": "$80k - $160k", "experience": "PhD" },
+    "Architect": { "category": "Creative", "skills": ["AutoCAD", "Revit", "SketchUp", "Building Codes", "Sustainable Design", "3D Rendering"], "salary_range": "$65k - $115k", "experience": "3-7 Years" }
 }
 
 def get_categories():
@@ -157,9 +180,7 @@ def get_categories():
     return sorted(list(categories))
 
 def extract_text_from_file(file):
-    """Extract text from PDF, DOCX, or IMAGES"""
     filename = file.filename.lower()
-    
     if filename.endswith('.pdf'):
         try:
             reader = PyPDF2.PdfReader(file)
@@ -169,7 +190,6 @@ def extract_text_from_file(file):
             return text
         except Exception as e:
             raise ValueError(f"Error reading PDF: {str(e)}")
-            
     elif filename.endswith(('.docx', '.doc')):
         try:
             import docx
@@ -179,21 +199,18 @@ def extract_text_from_file(file):
             return "Error: python-docx library not installed."
         except Exception as e:
             return f"Error reading DOCX: {str(e)}"
-    
     elif filename.endswith(('.jpg', '.jpeg', '.png', '.webp')):
         try:
             image = PIL.Image.open(file)
             prompt = "Analyze this image of a resume and extract all the text content from it verbatim. Organize it clearly."
-            
             print("📷 Image detected. Asking Gemini to read it...")
-            # Use retry logic for OCR too!
+            
+            # Using our Robust Retry Logic for OCR as well!
             response = generate_with_retry(None, [prompt, image])
             return response.text
-            
         except Exception as e:
             print(f"❌ Image OCR Error: {e}")
             raise ValueError(f"Error reading Image: {str(e)}")
-            
     else:
         raise ValueError("Unsupported file format. Please upload PDF, DOCX, or Image (JPG/PNG).")
 
@@ -225,15 +242,10 @@ def get_ai_feedback(resume_text, role, jd_text=None):
         mismatch_warning = f"Resume seems to be {resume_category}-focused, but you applied for a {role_category} role ({role})."
     
     prompt = f"""You are an expert Career Coach. Analyze this resume for a {role} position ({role_category}).
-    
     RESUME: {resume_text[:6000]}
     CONTEXT: {mismatch_warning}
     
     Return a VALID JSON OBJECT.
-    For 'professional_development', provide SMART LINKS:
-    - If a specific course is suggested, make the link: "https://www.coursera.org/search?query=COURSE_NAME"
-    - For YouTube, use: "https://www.youtube.com/results?search_query=COURSE_NAME"
-    
     JSON Schema:
     {{
         "compatibility_score": (integer 0-100),
@@ -264,11 +276,10 @@ def get_ai_feedback(resume_text, role, jd_text=None):
         "confidence_level": "High/Medium"
     }}
     """
-    
     try:
         print(f"📝 Sending analysis request...")
         
-        # USE THE RETRY FUNCTION HERE
+        # Call the ROBUST Sequential Logic
         response = generate_with_retry(None, prompt)
         
         try:
@@ -282,10 +293,8 @@ def get_ai_feedback(resume_text, role, jd_text=None):
         analysis['industry_category'] = role_category
         analysis['detected_resume_category'] = resume_category
         if mismatch_warning: analysis['mismatch_warning'] = mismatch_warning
-        
         print(f"✅ Analysis successful: {analysis.get('compatibility_score')}%")
         return analysis
-        
     except Exception as e:
         print(f"❌ Final Analysis Error: {e}")
         return generate_fallback_analysis(resume_text, role, role_category, resume_category)
@@ -331,12 +340,10 @@ def analyze():
     try:
         resume_text = extract_text_from_file(file)
         if len(resume_text.strip()) < 50: return render_template('error.html', error="Resume empty/unreadable", suggestion="Upload clear file")
-        
         session['analysis_id'] = str(uuid.uuid4())
         analysis = get_ai_feedback(resume_text, role, jd_text)
         session['analysis_data'] = analysis
         session['role'] = role
-        
         return render_template('result.html', analysis=analysis, role=role, role_info=JOB_ROLES.get(role, {}))
     except Exception as e:
         print(f"❌ Error: {e}")
@@ -362,6 +369,6 @@ def not_found(e): return render_template('error.html', error="Page not found"), 
 
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print(f"🚀 SKILLBRIDGE AI - RETRY SYSTEM & FREE MODEL ENABLED")
+    print(f"🚀 SKILLBRIDGE AI - FINAL SEQUENTIAL LOGIC ACTIVATED")
     print("="*60 + "\n")
     app.run(debug=True, host='0.0.0.0', port=5000)

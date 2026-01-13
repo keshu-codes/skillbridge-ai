@@ -670,7 +670,7 @@
 
           <div class="resource-links">
             <a
-              href="{{ dev.link }}"
+              href="{% if dev.link and 'http' in dev.link %}{{ dev.link }}{% else %}https://www.google.com/search?q={{ dev.title }}+{{ dev.provider }}+course{% endif %}"
               target="_blank"
               class="resource-link"
               style="background: var(--primary); color: white"
