@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import random
+import time
 import PyPDF2
 import google.generativeai as genai
 from flask import Flask, render_template, request, jsonify, session, send_file
@@ -21,39 +22,76 @@ sys.stdout.reconfigure(encoding='utf-8')
 load_dotenv()
 
 # --- 🚀 SMART API KEY ROTATION SYSTEM ---
-def configure_random_key():
-    """
-    Scans environment variables for GOOGLE_API_KEY, GOOGLE_API_KEY_1, GOOGLE_API_KEY_2, etc.
-    Picks one at random to distribute the load and avoid 429 errors.
-    """
+def get_all_api_keys():
+    """Collects all available API keys from environment variables."""
     api_keys = []
     
-    # 1. Check for the main key
+    # Check standard key
     if os.getenv("GOOGLE_API_KEY"):
         api_keys.append(os.getenv("GOOGLE_API_KEY"))
     
-    # 2. Check for numbered extra keys (GOOGLE_API_KEY_1 to GOOGLE_API_KEY_10)
+    # Check numbered keys
     i = 1
     while True:
         key = os.getenv(f"GOOGLE_API_KEY_{i}")
         if not key:
-            break # Stop looking if we find a gap
+            break
         api_keys.append(key)
         i += 1
-    
-    if not api_keys:
-        print("❌ ERROR: No Google API Keys found! Please add GOOGLE_API_KEY to .env or Render.")
+        
+    return api_keys
+
+def configure_random_key():
+    """Selects a random key to distribute load."""
+    keys = get_all_api_keys()
+    if not keys:
+        print("❌ ERROR: No Google API Keys found!")
         return False
 
-    # 3. Select a random key
-    selected_key = random.choice(api_keys)
+    selected_key = random.choice(keys)
     genai.configure(api_key=selected_key)
-    
-    # Print a hint so you know which one is being used (hiding most of the key for security)
-    print(f"🔑 Using API Key ending in: ...{selected_key[-5:]} (Total keys available: {len(api_keys)})")
+    print(f"🔑 Switched to API Key ending in: ...{selected_key[-5:]}")
     return True
 
-# Initialize with a random key on startup
+# --- 🛡️ ROBUST AI CALLER WITH RETRY ---
+def generate_with_retry(model, prompt_parts):
+    """
+    Tries to generate content. If it hits a 429 (Quota) error,
+    it automatically switches to a new key and retries up to 5 times.
+    """
+    max_retries = 6  # Try enough times to cycle through all your keys
+    
+    for attempt in range(max_retries):
+        try:
+            # 1. Configure a (potentially new) key
+            configure_random_key()
+            
+            # 2. Re-initialize model with new key config
+            # (Use the experimental model which is FREE)
+            active_model = genai.GenerativeModel("models/gemini-2.0-flash-exp")
+            
+            # 3. Attempt generation
+            response = active_model.generate_content(prompt_parts)
+            return response
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"⚠️ Attempt {attempt+1} failed: {error_msg}")
+            
+            # If it's a Quota error (429), we retry. If it's something else, we might still retry just in case.
+            if "429" in error_msg or "Quota" in error_msg:
+                print("♻️ Quota hit! Switching key and retrying immediately...")
+                time.sleep(1) # Short pause to let things settle
+                continue
+            else:
+                # If it's a different error, try one more time then fail
+                if attempt == max_retries - 1:
+                    raise e
+                continue
+
+    raise Exception("All API keys failed after multiple retries.")
+
+# Initialize
 configure_random_key()
 
 app = Flask(__name__)
@@ -65,13 +103,8 @@ CORS(app)
 Session(app)
 cache = Cache(app, config={'CACHE_TYPE': 'SimpleCache'})
 
-# --- MODEL CONFIG ---
-# Using 2.0-flash as discussed (High speed, generous limits)
-MODEL_NAME = "models/gemini-2.0-flash" 
-
-# ========== UNIVERSAL JOB ROLES DATABASE ==========
+# --- JOB ROLES DATABASE ---
 JOB_ROLES = {
-    # ... (Keeping your existing database logic exactly as is) ...
     # === SOFTWARE ENGINEERING ===
     "Frontend Developer": { "category": "Software Engineering", "skills": ["React", "Vue.js", "Angular", "JavaScript", "TypeScript", "HTML5", "CSS3", "Tailwind", "Redux", "Webpack"], "salary_range": "$70k - $140k", "experience": "1-5 Years" },
     "Backend Developer": { "category": "Software Engineering", "skills": ["Python", "Java", "Node.js", "Go", "Django", "Spring Boot", "PostgreSQL", "MongoDB", "Redis", "Docker"], "salary_range": "$80k - $150k", "experience": "2-6 Years" },
@@ -127,7 +160,6 @@ def extract_text_from_file(file):
     """Extract text from PDF, DOCX, or IMAGES"""
     filename = file.filename.lower()
     
-    # 1. PDF Handling
     if filename.endswith('.pdf'):
         try:
             reader = PyPDF2.PdfReader(file)
@@ -138,7 +170,6 @@ def extract_text_from_file(file):
         except Exception as e:
             raise ValueError(f"Error reading PDF: {str(e)}")
             
-    # 2. DOCX Handling
     elif filename.endswith(('.docx', '.doc')):
         try:
             import docx
@@ -149,18 +180,14 @@ def extract_text_from_file(file):
         except Exception as e:
             return f"Error reading DOCX: {str(e)}"
     
-    # 3. IMAGE Handling
     elif filename.endswith(('.jpg', '.jpeg', '.png', '.webp')):
         try:
-            # Re-configure key before Vision request to distribute load
-            configure_random_key()
-            
             image = PIL.Image.open(file)
-            model = genai.GenerativeModel(MODEL_NAME)
             prompt = "Analyze this image of a resume and extract all the text content from it verbatim. Organize it clearly."
             
             print("📷 Image detected. Asking Gemini to read it...")
-            response = model.generate_content([prompt, image])
+            # Use retry logic for OCR too!
+            response = generate_with_retry(None, [prompt, image])
             return response.text
             
         except Exception as e:
@@ -189,12 +216,6 @@ def clean_json_text(text):
     return text.strip()
 
 def get_ai_feedback(resume_text, role, jd_text=None):
-    # --- ROTATE KEY BEFORE ANALYSIS ---
-    # This ensures every resume analysis uses a random key from your pool
-    configure_random_key() 
-    
-    model = genai.GenerativeModel(MODEL_NAME)
-    
     role_info = JOB_ROLES.get(role, {})
     role_category = role_info.get('category', 'General')
     resume_category = detect_resume_category(resume_text)
@@ -245,8 +266,11 @@ def get_ai_feedback(resume_text, role, jd_text=None):
     """
     
     try:
-        print(f"📝 Sending request to {MODEL_NAME}...")
-        response = model.generate_content(prompt)
+        print(f"📝 Sending analysis request...")
+        
+        # USE THE RETRY FUNCTION HERE
+        response = generate_with_retry(None, prompt)
+        
         try:
             analysis = json.loads(clean_json_text(response.text))
         except json.JSONDecodeError as e:
@@ -263,7 +287,7 @@ def get_ai_feedback(resume_text, role, jd_text=None):
         return analysis
         
     except Exception as e:
-        print(f"❌ AI Analysis Error: {e}")
+        print(f"❌ Final Analysis Error: {e}")
         return generate_fallback_analysis(resume_text, role, role_category, resume_category)
 
 def generate_fallback_analysis(resume_text, role, category, detected_category=None):
@@ -338,6 +362,6 @@ def not_found(e): return render_template('error.html', error="Page not found"), 
 
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print(f"🚀 SKILLBRIDGE AI - MULTI-KEY ROTATION ENABLED")
+    print(f"🚀 SKILLBRIDGE AI - RETRY SYSTEM & FREE MODEL ENABLED")
     print("="*60 + "\n")
     app.run(debug=True, host='0.0.0.0', port=5000)
