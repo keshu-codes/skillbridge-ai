@@ -351,7 +351,55 @@ def analyze():
 
 @app.route('/demo')
 def demo():
-    return render_template('result.html', analysis=generate_fallback_analysis("Demo", "Frontend Developer", "Technology"), role="Frontend Developer", role_info=JOB_ROLES["Frontend Developer"], is_demo=True)
+    # 🌟 PRE-CALCULATED 'PERFECT' DEMO DATA
+    # This ensures the Demo button always impresses with a high score.
+    demo_analysis = {
+        "compatibility_score": 88,
+        "score_explanation": "Strong match! Your experience with React and modern UI libraries aligns perfectly with industry standards.",
+        "skill_analysis": {
+            "present": ["React", "JavaScript", "HTML5", "CSS3", "Tailwind", "Git", "REST APIs"],
+            "missing": ["TypeScript", "Redux", "Docker"],
+            "match_percentage": 88
+        },
+        "critical_gaps": [
+            {"gap": "TypeScript", "priority": "High", "impact": "Essential for type-safe, scalable frontend applications."},
+            {"gap": "Redux", "priority": "Medium", "impact": "Required for state management in complex enterprise apps."},
+            {"gap": "Docker", "priority": "Low", "impact": "Useful for containerizing applications in DevOps workflows."}
+        ],
+        "professional_development": [
+            {"title": "TypeScript for React Developers", "provider": "Coursera", "type": "Specialization", "duration": "20 Hours", "link": "https://www.coursera.org/specializations/typescript-react"},
+            {"title": "Redux Toolkit Masterclass", "provider": "Udemy", "type": "Course", "duration": "12 Hours", "link": "https://www.udemy.com/course/redux-toolkit/"}
+        ],
+        "youtube_recommendations": [
+            {"title": "TypeScript Crash Course", "link": "https://www.youtube.com/results?search_query=TypeScript+Crash+Course"},
+            {"title": "Redux Toolkit Tutorial", "link": "https://www.youtube.com/results?search_query=Redux+Toolkit+Tutorial"},
+            {"title": "Docker for Frontend Developers", "link": "https://www.youtube.com/results?search_query=Docker+for+frontend"}
+        ],
+        "interview_questions": [
+            "Explain the Virtual DOM in React and how it improves performance.",
+            "What is the difference between var, let, and const in JavaScript?",
+            "How do you handle state management in large applications?",
+            "Explain the concept of 'Hoisting' in JavaScript."
+        ],
+        "resume_improvements": [
+            {"current": "Built a todo app using React.", "improved": "Architected a scalable Task Management System using React and Firebase, reducing user latency by 40%.", "reason": "Adds metrics, specific technologies, and stronger action verbs."},
+            {"current": "Good knowledge of CSS.", "improved": "Proficient in responsive web design using CSS3, Flexbox, and Tailwind CSS to create mobile-first interfaces.", "reason": "More professional, specific, and highlights modern tool usage."}
+        ],
+        "career_roadmap": {
+            "short_term": "Master TypeScript and State Management (Redux) to become industry-ready.",
+            "medium_term": "Build a Full-Stack MERN Project to understand backend integration and database management.",
+            "long_term": "Lead Frontend Architect or Senior React Developer managing large-scale systems."
+        },
+        "salary_benchmark": "$85k - $130k",
+        "final_assessment": "You are a highly competitive candidate. Bridging the gap in TypeScript will make you a top-tier applicant for Senior Frontend roles.",
+        "confidence_level": "High",
+        "analysis_date": datetime.now().strftime('%Y-%m-%d %H:%M'),
+        "role_applied": "Frontend Developer",
+        "industry_category": "Software Engineering",
+        "detected_resume_category": "Software Engineering"
+    }
+
+    return render_template('result.html', analysis=demo_analysis, role="Frontend Developer", role_info=JOB_ROLES["Frontend Developer"], is_demo=True)
 
 @app.route('/download-report')
 def download_report():
