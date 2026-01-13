@@ -1,0 +1,309 @@
+import os
+import json
+import uuid
+import PyPDF2
+import google.generativeai as genai
+from flask import Flask, render_template, request, jsonify, session, send_file
+from flask_caching import Cache
+from flask_session import Session
+from flask_cors import CORS
+from dotenv import load_dotenv
+from datetime import datetime
+import io
+import sys
+import PIL.Image  # <--- NEW IMPORT
+
+# 1. Fix Windows console encoding
+sys.stdout.reconfigure(encoding='utf-8')
+
+# 2. Load environment variables
+load_dotenv()
+api_key = os.getenv("GOOGLE_API_KEY")
+
+if not api_key:
+    print("❌ ERROR: GOOGLE_API_KEY not found in .env file")
+else:
+    genai.configure(api_key=api_key)
+
+app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "skillbridge-hackathon-secret-2024")
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_PERMANENT'] = True
+
+CORS(app)
+Session(app)
+cache = Cache(app, config={'CACHE_TYPE': 'SimpleCache'})
+
+# --- MODEL CONFIG ---
+MODEL_NAME = "models/gemini-2.5-flash"
+
+# ========== UNIVERSAL JOB ROLES DATABASE ==========
+JOB_ROLES = {
+    # === SOFTWARE ENGINEERING ===
+    "Frontend Developer": { "category": "Software Engineering", "skills": ["React", "Vue.js", "Angular", "JavaScript", "TypeScript", "HTML5", "CSS3", "Tailwind", "Redux", "Webpack"], "salary_range": "$70k - $140k", "experience": "1-5 Years" },
+    "Backend Developer": { "category": "Software Engineering", "skills": ["Python", "Java", "Node.js", "Go", "Django", "Spring Boot", "PostgreSQL", "MongoDB", "Redis", "Docker"], "salary_range": "$80k - $150k", "experience": "2-6 Years" },
+    "Full Stack Developer": { "category": "Software Engineering", "skills": ["MERN Stack", "Next.js", "Python", "SQL", "NoSQL", "AWS", "REST APIs", "GraphQL", "Git", "CI/CD"], "salary_range": "$90k - $160k", "experience": "3-7 Years" },
+    "DevOps Engineer": { "category": "Software Engineering", "skills": ["AWS", "Azure", "Kubernetes", "Docker", "Jenkins", "Terraform", "Ansible", "Linux", "Bash Scripting", "Monitoring"], "salary_range": "$100k - $170k", "experience": "3-8 Years" },
+    "Mobile App Developer": { "category": "Software Engineering", "skills": ["Flutter", "React Native", "Swift", "Kotlin", "iOS", "Android", "Firebase", "Dart", "Mobile UI"], "salary_range": "$80k - $145k", "experience": "2-5 Years" },
+    "QA Automation Engineer": { "category": "Software Engineering", "skills": ["Selenium", "Cypress", "Python", "Java", "JUnit", "TestNG", "Jenkins", "API Testing", "Agile"], "salary_range": "$70k - $130k", "experience": "2-6 Years" },
+    "Cybersecurity Analyst": { "category": "Software Engineering", "skills": ["Network Security", "Penetration Testing", "SIEM", "Firewalls", "Python", "Linux", "Risk Assessment", "Compliance"], "salary_range": "$90k - $160k", "experience": "2-6 Years" },
+    "Game Developer": { "category": "Software Engineering", "skills": ["Unity", "Unreal Engine", "C++", "C#", "3D Math", "Physics Engines", "Shader Programming", "Game Design"], "salary_range": "$70k - $140k", "experience": "2-7 Years" },
+
+    # === DATA & AI ===
+    "Data Scientist": { "category": "Data & AI", "skills": ["Python", "Pandas", "NumPy", "Scikit-learn", "TensorFlow", "PyTorch", "SQL", "Statistics", "Data Visualization"], "salary_range": "$100k - $180k", "experience": "2-5 Years" },
+    "Data Analyst": { "category": "Data & AI", "skills": ["Excel", "SQL", "Tableau", "Power BI", "Python", "R", "Data Cleaning", "Statistical Analysis", "Reporting"], "salary_range": "$65k - $110k", "experience": "1-4 Years" },
+    "Machine Learning Engineer": { "category": "Data & AI", "skills": ["Python", "TensorFlow", "Keras", "NLP", "Computer Vision", "MLOps", "AWS SageMaker", "Algorithms"], "salary_range": "$110k - $200k", "experience": "3-7 Years" },
+    "Data Engineer": { "category": "Data & AI", "skills": ["SQL", "Python", "Spark", "Hadoop", "Kafka", "ETL Pipelines", "Snowflake", "AWS Redshift", "Big Data"], "salary_range": "$100k - $170k", "experience": "3-6 Years" },
+
+    # === CORE ENGINEERING ===
+    "Civil Engineer": { "category": "Core Engineering", "skills": ["AutoCAD", "Civil 3D", "STAAD Pro", "Structural Analysis", "Project Management", "Surveying", "Construction Mgmt", "Revit"], "salary_range": "$65k - $120k", "experience": "2-6 Years" },
+    "Mechanical Engineer": { "category": "Core Engineering", "skills": ["SolidWorks", "AutoCAD", "ANSYS", "Thermodynamics", "Fluid Mechanics", "GD&T", "Manufacturing", "MATLAB"], "salary_range": "$70k - $130k", "experience": "2-6 Years" },
+    "Electrical Engineer": { "category": "Core Engineering", "skills": ["Circuit Design", "PCB Design", "MATLAB", "Simulink", "PLC Programming", "AutoCAD Electrical", "Power Systems", "IoT"], "salary_range": "$75k - $135k", "experience": "2-6 Years" },
+    "Electronics Engineer": { "category": "Core Engineering", "skills": ["Embedded Systems", "C/C++", "Microcontrollers", "Verilog", "FPGA", "Analog Design", "Digital Signal Processing"], "salary_range": "$80k - $140k", "experience": "2-6 Years" },
+    
+    # === BUSINESS & MANAGEMENT ===
+    "Product Manager": { "category": "Business", "skills": ["Product Strategy", "Agile/Scrum", "User Research", "Roadmapping", "JIRA", "Data Analysis", "Stakeholder Mgmt", "UX/UI Basics"], "salary_range": "$110k - $190k", "experience": "4-8 Years" },
+    "Project Manager": { "category": "Business", "skills": ["PMP", "Agile", "Scrum", "Risk Management", "Budgeting", "MS Project", "Communication", "Leadership"], "salary_range": "$90k - $160k", "experience": "3-7 Years" },
+    "Business Analyst": { "category": "Business", "skills": ["SQL", "Excel", "Requirements Gathering", "Process Modeling", "UML", "Tableau", "Stakeholder Analysis"], "salary_range": "$75k - $125k", "experience": "2-5 Years" },
+    "Marketing Manager": { "category": "Business", "skills": ["Digital Marketing", "SEO", "Content Strategy", "Google Analytics", "Social Media", "Email Marketing", "Brand Mgmt"], "salary_range": "$70k - $140k", "experience": "3-7 Years" },
+    "HR Manager": { "category": "Business", "skills": ["Recruitment", "Employee Relations", "HRIS", "Labor Laws", "Performance Mgmt", "Onboarding", "Payroll"], "salary_range": "$70k - $130k", "experience": "4-8 Years" },
+
+    # === FINANCE ===
+    "Financial Analyst": { "category": "Finance", "skills": ["Financial Modeling", "Excel (Advanced)", "Forecasting", "Valuation", "SAP", "Accounting", "Bloomberg Terminal"], "salary_range": "$70k - $120k", "experience": "2-5 Years" },
+    "Investment Banker": { "category": "Finance", "skills": ["M&A", "LBO Modeling", "Valuation", "Due Diligence", "Capital Markets", "Client Advisory", "Pitchbooks"], "salary_range": "$120k - $250k+", "experience": "2-5 Years" },
+    "Chartered Accountant": { "category": "Finance", "skills": ["Auditing", "Taxation", "IFRS/GAAP", "Financial Reporting", "Internal Controls", "Compliance", "Budgeting"], "salary_range": "$75k - $150k", "experience": "3-6 Years" },
+
+    # === MEDICAL & HEALTHCARE ===
+    "General Practitioner": { "category": "Healthcare", "skills": ["Diagnosis", "Patient Care", "Medical Records (EMR)", "Pharmacology", "Clinical Procedures", "Preventive Care"], "salary_range": "$150k - $250k", "experience": "Residency+" },
+    "Registered Nurse": { "category": "Healthcare", "skills": ["Patient Assessment", "Critical Care", "IV Therapy", "Medication Admin", "BLS/ACLS", "Compassion"], "salary_range": "$60k - $110k", "experience": "Licensure" },
+    "Pharmacist": { "category": "Healthcare", "skills": ["Pharmacology", "Dispensing", "Patient Counseling", "Drug Interactions", "Inventory Mgmt", "Compliance"], "salary_range": "$110k - $140k", "experience": "PharmD" },
+
+    # === LEGAL ===
+    "Corporate Lawyer": { "category": "Legal", "skills": ["Contract Law", "Mergers & Acquisitions", "Corporate Governance", "Negotiation", "Legal Drafting", "Compliance"], "salary_range": "$120k - $220k", "experience": "3-7 Years" },
+    "Litigation Attorney": { "category": "Legal", "skills": ["Trial Advocacy", "Legal Research", "Depositions", "Civil Procedure", "Case Management", "Evidence"], "salary_range": "$100k - $190k", "experience": "3-7 Years" },
+
+    # === CREATIVE & DESIGN ===
+    "Graphic Designer": { "category": "Creative", "skills": ["Adobe Photoshop", "Illustrator", "InDesign", "Typography", "Branding", "Layout Design", "Creativity"], "salary_range": "$50k - $90k", "experience": "2-5 Years" },
+    "UI/UX Designer": { "category": "Creative", "skills": ["Figma", "Sketch", "Wireframing", "Prototyping", "User Research", "Interaction Design", "Adobe XD"], "salary_range": "$80k - $140k", "experience": "2-6 Years" }
+}
+
+def get_categories():
+    categories = set()
+    for role_data in JOB_ROLES.values():
+        categories.add(role_data.get('category', 'Other'))
+    return sorted(list(categories))
+
+def extract_text_from_file(file):
+    """Extract text from PDF, DOCX, or IMAGES"""
+    filename = file.filename.lower()
+    
+    # 1. PDF Handling
+    if filename.endswith('.pdf'):
+        try:
+            reader = PyPDF2.PdfReader(file)
+            text = ""
+            for page in reader.pages:
+                text += page.extract_text() or ""
+            return text
+        except Exception as e:
+            raise ValueError(f"Error reading PDF: {str(e)}")
+            
+    # 2. DOCX Handling
+    elif filename.endswith(('.docx', '.doc')):
+        try:
+            import docx
+            doc = docx.Document(file)
+            return '\n'.join([para.text for para in doc.paragraphs])
+        except ImportError:
+            return "Error: python-docx library not installed."
+        except Exception as e:
+            return f"Error reading DOCX: {str(e)}"
+    
+    # 3. IMAGE Handling (NEW!)
+    elif filename.endswith(('.jpg', '.jpeg', '.png', '.webp')):
+        try:
+            # Load image using Pillow
+            image = PIL.Image.open(file)
+            
+            # Use Gemini Vision to transcribe the resume
+            model = genai.GenerativeModel(MODEL_NAME)
+            prompt = "Analyze this image of a resume and extract all the text content from it verbatim. Organize it clearly."
+            
+            print("📷 Image detected. Asking Gemini to read it...")
+            response = model.generate_content([prompt, image])
+            return response.text
+            
+        except Exception as e:
+            print(f"❌ Image OCR Error: {e}")
+            raise ValueError(f"Error reading Image: {str(e)}")
+            
+    else:
+        raise ValueError("Unsupported file format. Please upload PDF, DOCX, or Image (JPG/PNG).")
+
+def detect_resume_category(resume_text):
+    resume_lower = resume_text.lower()
+    counts = {cat: 0 for cat in get_categories()}
+    for role, data in JOB_ROLES.items():
+        cat = data['category']
+        if role.lower() in resume_lower: counts[cat] += 3
+        for skill in data['skills']:
+            if skill.lower() in resume_lower: counts[cat] += 1
+    if max(counts.values()) > 0: return max(counts, key=counts.get)
+    return "General"
+
+def clean_json_text(text):
+    text = text.strip()
+    if "```json" in text: text = text.split("```json")[1]
+    elif "```" in text: text = text.split("```")[1]
+    if "```" in text: text = text.split("```")[0]
+    return text.strip()
+
+def get_ai_feedback(resume_text, role, jd_text=None):
+    model = genai.GenerativeModel(MODEL_NAME)
+    
+    role_info = JOB_ROLES.get(role, {})
+    role_category = role_info.get('category', 'General')
+    resume_category = detect_resume_category(resume_text)
+    
+    mismatch_warning = ""
+    if resume_category != role_category and resume_category != "General":
+        mismatch_warning = f"Resume seems to be {resume_category}-focused, but you applied for a {role_category} role ({role})."
+    
+    prompt = f"""You are an expert Career Coach. Analyze this resume for a {role} position ({role_category}).
+    
+    RESUME: {resume_text[:6000]}
+    CONTEXT: {mismatch_warning}
+    
+    Return a VALID JSON OBJECT.
+    For 'professional_development', provide SMART LINKS:
+    - If a specific course is suggested, make the link: "https://www.coursera.org/search?query=COURSE_NAME" or "https://www.udemy.com/courses/search/?q=COURSE_NAME"
+    - For YouTube, use: "https://www.youtube.com/results?search_query=COURSE_NAME"
+    
+    JSON Schema:
+    {{
+        "compatibility_score": (integer 0-100),
+        "score_explanation": (string),
+        "skill_analysis": {{
+            "present": [(list string)],
+            "missing": [(list string)],
+            "match_percentage": (integer 0-100)
+        }},
+        "critical_gaps": [
+            {{"gap": (string), "priority": "High/Medium", "impact": (string)}}
+        ],
+        "professional_development": [
+            {{"title": (string), "provider": (string), "type": "Course/Project", "duration": (string), "link": (string)}}
+        ],
+        "youtube_recommendations": [
+            {{"title": (string), "link": (string)}}
+        ],
+        "interview_questions": [(list string)],
+        "resume_improvements": [
+            {{"current": (string), "improved": (string), "reason": (string)}}
+        ],
+        "career_roadmap": {{
+            "short_term": (string), "medium_term": (string), "long_term": (string)
+        }},
+        "salary_benchmark": (string),
+        "final_assessment": (string),
+        "confidence_level": "High/Medium"
+    }}
+    """
+    
+    try:
+        print(f"📝 Sending request to {MODEL_NAME}...")
+        response = model.generate_content(prompt)
+        try:
+            analysis = json.loads(clean_json_text(response.text))
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON Parse Error: {e}")
+            return generate_fallback_analysis(resume_text, role, role_category, resume_category)
+        
+        analysis['analysis_date'] = datetime.now().strftime('%Y-%m-%d %H:%M')
+        analysis['role_applied'] = role
+        analysis['industry_category'] = role_category
+        analysis['detected_resume_category'] = resume_category
+        if mismatch_warning: analysis['mismatch_warning'] = mismatch_warning
+        
+        print(f"✅ Analysis successful: {analysis.get('compatibility_score')}%")
+        return analysis
+        
+    except Exception as e:
+        print(f"❌ AI Analysis Error: {e}")
+        return generate_fallback_analysis(resume_text, role, role_category, resume_category)
+
+def generate_fallback_analysis(resume_text, role, category, detected_category=None):
+    role_info = JOB_ROLES.get(role, {})
+    role_skills = role_info.get('skills', [])
+    resume_lower = resume_text.lower()
+    present = [s for s in role_skills if s.lower() in resume_lower]
+    missing = [s for s in role_skills if s.lower() not in resume_lower]
+    match = int((len(present) / max(len(role_skills), 1)) * 100) if role_skills else 0
+    
+    return {
+        "compatibility_score": match,
+        "score_explanation": "Basic keyword analysis (AI unavailable).",
+        "skill_analysis": { "present": present, "missing": missing, "match_percentage": match },
+        "critical_gaps": [{"gap": s, "priority": "High", "impact": "Missing skill"} for s in missing[:3]],
+        "professional_development": [{"title": f"Learn {missing[0] if missing else role}", "provider": "YouTube", "type": "Self-study", "duration": "Variable", "link": f"https://www.youtube.com/results?search_query=Learn+{missing[0] if missing else role}"}],
+        "youtube_recommendations": [{"title": f"{role} Crash Course", "link": f"https://www.youtube.com/results?search_query={role}+crash+course"}],
+        "interview_questions": ["Tell me about yourself.", "Strengths?", "Weaknesses?"],
+        "resume_improvements": [{"current": "N/A", "improved": "N/A", "reason": "AI unavailable"}],
+        "career_roadmap": { "short_term": "Learn basics", "medium_term": "Build projects", "long_term": "Senior role" },
+        "salary_benchmark": role_info.get('salary_range', 'N/A'),
+        "final_assessment": "Try again later for full AI analysis.",
+        "confidence_level": "Low",
+        "analysis_date": datetime.now().strftime('%Y-%m-%d')
+    }
+
+@app.route('/')
+def home():
+    categories = get_categories()
+    return render_template('index.html', roles=JOB_ROLES.keys(), role_data=JOB_ROLES, categories=categories)
+
+@app.route('/analyze', methods=['POST'])
+def analyze():
+    if 'resume' not in request.files: return jsonify({"error": "No file"}), 400
+    file = request.files['resume']
+    role = request.form.get('role', '')
+    jd_text = request.form.get('jd', '')
+    
+    if not role or file.filename == '': return jsonify({"error": "Missing data"}), 400
+    
+    try:
+        resume_text = extract_text_from_file(file)
+        if len(resume_text.strip()) < 50: return render_template('error.html', error="Resume empty/unreadable", suggestion="Upload clear file")
+        
+        session['analysis_id'] = str(uuid.uuid4())
+        analysis = get_ai_feedback(resume_text, role, jd_text)
+        session['analysis_data'] = analysis
+        session['role'] = role
+        
+        return render_template('result.html', analysis=analysis, role=role, role_info=JOB_ROLES.get(role, {}))
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return render_template('error.html', error=str(e), suggestion="Try again")
+
+@app.route('/demo')
+def demo():
+    return render_template('result.html', analysis=generate_fallback_analysis("Demo", "Frontend Developer", "Technology"), role="Frontend Developer", role_info=JOB_ROLES["Frontend Developer"], is_demo=True)
+
+@app.route('/download-report')
+def download_report():
+    analysis = session.get('analysis_data')
+    if not analysis: return "No data", 400
+    report_text = f"SkillBridge Report\nRole: {session.get('role')}\nScore: {analysis.get('compatibility_score')}%"
+    return send_file(io.BytesIO(report_text.encode()), as_attachment=True, download_name="report.txt", mimetype='text/plain')
+
+@app.route('/api/categories')
+def get_categories_api():
+    return jsonify({"categories": get_categories(), "roles": JOB_ROLES})
+
+@app.errorhandler(404)
+def not_found(e): return render_template('error.html', error="Page not found"), 404
+
+if __name__ == '__main__':
+    print("\n" + "="*60)
+    print(f"🚀 SKILLBRIDGE AI - IMAGE SUPPORT ENABLED")
+    print("="*60 + "\n")
+    app.run(debug=True, host='0.0.0.0', port=5000)

@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SkillBridge AI - Universal Career Analyzer</title>
+    <meta
+      name="description"
+      content="AI-powered career analysis for ALL professions. Identify skill gaps and get personalized guidance."
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Georgia:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='style.css') }}"
+    />
+    <link
+      rel="icon"
+      href="{{ url_for('static', filename='SkillBridge_Logo.ico') }}"
+      type="image/x-icon"
+    />
+    <link
+      rel="icon"
+      href="{{ url_for('static', filename='SkillBridge_Logo.png') }}"
+      type="image/png"
+    />
+  </head>
+  <body>
+    <div class="background">
+      <div class="pattern"></div>
+      <div class="shape shape-1"></div>
+      <div class="shape shape-2"></div>
+    </div>
+
+    <div id="loading-overlay" class="loading-overlay hidden">
+      <div class="spinner"></div>
+      <p class="loading-text">AI Career Analysis in Progress</p>
+      <div class="loading-dots">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+      <p class="loading-subtext">
+        Analyzing your resume with industry-specific AI
+      </p>
+    </div>
+
+    <div class="main-container">
+      <header class="header">
+        <a href="/" class="logo">
+          <div class="logo-icon">🌉</div>
+          <div class="logo-text">SkillBridge AI</div>
+        </a>
+        <a href="/demo" class="primary-button">
+          <i class="fas fa-eye"></i> View Demo
+        </a>
+      </header>
+
+      <section class="hero-section">
+        <h1 class="hero-title">
+          Universal <span class="highlight-text">Career</span> Analysis
+        </h1>
+        <p class="hero-subtitle">
+          AI-powered career analysis for ALL professions. Get industry-specific
+          insights, skill gap analysis, and personalized career guidance.
+        </p>
+
+        <div class="stats">
+          <div class="stat-card animate-fade-up delay-100">
+            <div class="stat-number">{{ role_data|length }}+</div>
+            <div class="stat-label">Professions</div>
+          </div>
+          <div class="stat-card animate-fade-up delay-200">
+            <div class="stat-number">{{ categories|length }}</div>
+            <div class="stat-label">Industries</div>
+          </div>
+          <div class="stat-card animate-fade-up delay-300">
+            <div class="stat-number">98%</div>
+            <div class="stat-label">Accuracy</div>
+          </div>
+          <div class="stat-card animate-fade-up delay-400">
+            <div class="stat-number">Free</div>
+            <div class="stat-label">Access</div>
+          </div>
+        </div>
+      </section>
+
+      <div class="card-container">
+        <div class="card animate-push-in">
+          <div class="card-header">
+            <div class="card-icon">
+              <i class="fas fa-scroll"></i>
+            </div>
+            <h2 class="card-title">Universal Career Analysis</h2>
+            <p class="card-subtitle">
+              Industry-specific AI analysis in seconds
+            </p>
+          </div>
+
+          <form
+            action="/analyze"
+            method="POST"
+            enctype="multipart/form-data"
+            id="analysis-form"
+          >
+            <div class="input-group animate-fade-up delay-50">
+              <label class="input-label">
+                <i class="fas fa-filter"></i> Select Industry
+              </label>
+              <select
+                name="category"
+                class="input-field"
+                id="category-filter"
+                onchange="filterRoles()"
+              >
+                <option value="all">All Industries</option>
+                {% for category in categories %}
+                <option value="{{ category }}">{{ category }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="input-group animate-fade-up delay-100">
+              <label class="input-label">
+                <i class="fas fa-crown"></i> Target Position
+              </label>
+              <select name="role" class="input-field" id="role-select" required>
+                <option value="">Select your desired role...</option>
+                {% for role_name, role_info in role_data.items() %}
+                <option
+                  value="{{ role_name }}"
+                  data-category="{{ role_info.category }}"
+                >
+                  {{ role_name }} ({{ role_info.category }})
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="input-group animate-fade-up delay-200">
+              <label class="input-label">
+                <i class="fas fa-file-contract"></i> Job Description (Optional)
+              </label>
+              <textarea
+                name="jd"
+                class="input-field"
+                rows="4"
+                placeholder="Paste the job description for precise analysis..."
+              ></textarea>
+            </div>
+
+            <div class="input-group animate-fade-up delay-300">
+              <label class="input-label">
+                <i class="fas fa-file-certificate"></i> Upload Resume
+              </label>
+              <div class="file-upload" id="file-drop-area">
+                <div class="file-icon">
+                  <i class="fas fa-cloud-upload-alt"></i>
+                </div>
+                <div class="file-text" id="file-message">
+                  Upload PDF, DOCX, or Image
+                </div>
+                <div class="file-hint">Maximum file size: 10MB</div>
+                <input
+                  class="file-input"
+                  type="file"
+                  name="resume"
+                  accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.webp"
+                  required
+                  id="file-input"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              class="btn btn-primary btn-large btn-full animate-fade-up delay-400"
+              id="analyze-btn"
+            >
+              <i class="fas fa-magic"></i> Begin Career Analysis
+            </button>
+
+            <p
+              style="
+                text-align: center;
+                margin-top: 1.5rem;
+                color: var(--secondary);
+                font-size: 0.9rem;
+              "
+            >
+              <i class="fas fa-lock"></i> Confidential & Secure • No Data
+              Storage • All Professions Supported
+            </p>
+          </form>
+        </div>
+
+        <div class="card animate-push-in delay-100">
+          <div class="card-header">
+            <div class="card-icon">
+              <i class="fas fa-chess-king"></i>
+            </div>
+            <h2 class="card-title">Universal Analysis Process</h2>
+            <p class="card-subtitle">Three steps to career advancement</p>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 2rem">
+            <div
+              style="display: flex; gap: 1.25rem; align-items: flex-start"
+              class="animate-fade-up delay-200"
+            >
+              <div style="flex-shrink: 0">
+                <div
+                  style="
+                    width: 45px;
+                    height: 45px;
+                    background: linear-gradient(
+                      135deg,
+                      var(--primary),
+                      var(--primary-dark)
+                    );
+                    color: var(--accent);
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-weight: 700;
+                    border: 2px solid var(--accent);
+                  "
+                >
+                  1
+                </div>
+              </div>
+              <div>
+                <h3
+                  style="
+                    font-size: 1.3rem;
+                    font-weight: 700;
+                    color: var(--primary-dark);
+                    margin-bottom: 0.5rem;
+                    font-family: 'Georgia', serif;
+                  "
+                >
+                  Industry Selection
+                </h3>
+                <p style="color: var(--charcoal); line-height: 1.6">
+                  Choose from 8+ industries including Legal, Medical, Finance,
+                  Technology, Engineering, Business, Education, and more.
+                </p>
+              </div>
+            </div>
+
+            <div
+              style="display: flex; gap: 1.25rem; align-items: flex-start"
+              class="animate-fade-up delay-300"
+            >
+              <div style="flex-shrink: 0">
+                <div
+                  style="
+                    width: 45px;
+                    height: 45px;
+                    background: linear-gradient(
+                      135deg,
+                      var(--primary),
+                      var(--primary-dark)
+                    );
+                    color: var(--accent);
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-weight: 700;
+                    border: 2px solid var(--accent);
+                  "
+                >
+                  2
+                </div>
+              </div>
+              <div>
+                <h3
+                  style="
+                    font-size: 1.3rem;
+                    font-weight: 700;
+                    color: var(--primary-dark);
+                    margin-bottom: 0.5rem;
+                    font-family: 'Georgia', serif;
+                  "
+                >
+                  AI-Powered Analysis
+                </h3>
+                <p style="color: var(--charcoal); line-height: 1.6">
+                  Our AI analyzes your resume against industry-specific
+                  requirements, certifications, and career progression paths.
+                </p>
+              </div>
+            </div>
+
+            <div
+              style="display: flex; gap: 1.25rem; align-items: flex-start"
+              class="animate-fade-up delay-400"
+            >
+              <div style="flex-shrink: 0">
+                <div
+                  style="
+                    width: 45px;
+                    height: 45px;
+                    background: linear-gradient(
+                      135deg,
+                      var(--primary),
+                      var(--primary-dark)
+                    );
+                    color: var(--accent);
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-weight: 700;
+                    border: 2px solid var(--accent);
+                  "
+                >
+                  3
+                </div>
+              </div>
+              <div>
+                <h3
+                  style="
+                    font-size: 1.3rem;
+                    font-weight: 700;
+                    color: var(--primary-dark);
+                    margin-bottom: 0.5rem;
+                    font-family: 'Georgia', serif;
+                  "
+                >
+                  Career Roadmap
+                </h3>
+                <p style="color: var(--charcoal); line-height: 1.6">
+                  Receive personalized career guidance, professional development
+                  recommendations, and industry-specific interview preparation.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <a
+            href="/demo"
+            class="btn btn-secondary btn-full animate-fade-up delay-500"
+            style="margin-top: 2.5rem"
+          >
+            <i class="fas fa-eye"></i> View Sample Career Report
+          </a>
+        </div>
+      </div>
+
+      <section class="features">
+        <h2 class="section-title animate-slide-up">Supported Industries</h2>
+        <p class="section-subtitle animate-fade-up delay-100">
+          Comprehensive career analysis across all major professions
+        </p>
+
+        <div class="features-grid">
+          <div class="feature-card animate-fade-up delay-100">
+            <div
+              class="feature-icon"
+              style="background: linear-gradient(135deg, #3b82f6, #1d4ed8)"
+            >
+              <i class="fas fa-balance-scale"></i>
+            </div>
+            <h3 class="feature-title">Legal</h3>
+            <p class="feature-description">
+              Lawyers, Attorneys, Legal Consultants, Corporate Counsel with
+              certification tracking and compliance analysis.
+            </p>
+          </div>
+
+          <div class="feature-card animate-fade-up delay-200">
+            <div
+              class="feature-icon"
+              style="background: linear-gradient(135deg, #10b981, #047857)"
+            >
+              <i class="fas fa-stethoscope"></i>
+            </div>
+            <h3 class="feature-title">Medical</h3>
+            <p class="feature-description">
+              Doctors, Surgeons, Healthcare Professionals, Pharmacists with
+              license verification and specialization analysis.
+            </p>
+          </div>
+
+          <div class="feature-card animate-fade-up delay-300">
+            <div
+              class="feature-icon"
+              style="background: linear-gradient(135deg, #f59e0b, #d97706)"
+            >
+              <i class="fas fa-chart-line"></i>
+            </div>
+            <h3 class="feature-title">Finance</h3>
+            <p class="feature-description">
+              Chartered Accountants, Financial Analysts, Investment Bankers with
+              certification and regulatory compliance tracking.
+            </p>
+          </div>
+
+          <div class="feature-card animate-fade-up delay-400">
+            <div
+              class="feature-icon"
+              style="background: linear-gradient(135deg, #8b5cf6, #7c3aed)"
+            >
+              <i class="fas fa-code"></i>
+            </div>
+            <h3 class="feature-title">Technology</h3>
+            <p class="feature-description">
+              Developers, Engineers, Data Scientists with technical skill
+              analysis and certification recommendations.
+            </p>
+          </div>
+
+          <div class="feature-card animate-fade-up delay-500">
+            <div
+              class="feature-icon"
+              style="background: linear-gradient(135deg, #ef4444, #dc2626)"
+            >
+              <i class="fas fa-cogs"></i>
+            </div>
+            <h3 class="feature-title">Engineering</h3>
+            <p class="feature-description">
+              Civil, Mechanical, Electrical Engineers with project experience
+              analysis and professional certification tracking.
+            </p>
+          </div>
+
+          <div class="feature-card animate-fade-up delay-600">
+            <div
+              class="feature-icon"
+              style="background: linear-gradient(135deg, #ec4899, #db2777)"
+            >
+              <i class="fas fa-briefcase"></i>
+            </div>
+            <h3 class="feature-title">Business</h3>
+            <p class="feature-description">
+              Marketing, HR, Management professionals with industry-specific
+              skill analysis and career progression mapping.
+            </p>
+          </div>
+
+          <div class="feature-card animate-fade-up delay-700">
+            <div
+              class="feature-icon"
+              style="background: linear-gradient(135deg, #06b6d4, #0891b2)"
+            >
+              <i class="fas fa-graduation-cap"></i>
+            </div>
+            <h3 class="feature-title">Education</h3>
+            <p class="feature-description">
+              Teachers, Professors, Academic Staff with certification analysis
+              and curriculum development experience tracking.
+            </p>
+          </div>
+
+          <div class="feature-card animate-fade-up delay-800">
+            <div
+              class="feature-icon"
+              style="background: linear-gradient(135deg, #f97316, #ea580c)"
+            >
+              <i class="fas fa-palette"></i>
+            </div>
+            <h3 class="feature-title">Creative</h3>
+            <p class="feature-description">
+              Designers, Artists, Content Creators with portfolio analysis and
+              industry-specific skill gap identification.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <div class="footer-links">
+          <a href="/demo" class="footer-link">Demo</a>
+          <a href="/api/categories" class="footer-link">API</a>
+          <a href="#" class="footer-link">Privacy</a>
+          <a href="#" class="footer-link">Terms</a>
+          <a href="#" class="footer-link">Contact</a>
+        </div>
+        <p style="color: var(--secondary); margin-top: 1rem">
+          © 2026 SkillBridge AI • Universal Career Analysis Platform • {{
+          role_data|length }}+ Professions Supported
+        </p>
+      </footer>
+    </div>
+
+    <div class="developer-watermark">
+      <i class="fas fa-code dev-icon"></i>
+      <span>Developed by <span class="dev-name">Keshu</span></span>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script>
+      // Global variable to store all original options
+      let allRoleOptions = [];
+
+      // Initialize logic when DOM is ready
+      document.addEventListener("DOMContentLoaded", function () {
+        const roleSelect = document.getElementById("role-select");
+
+        // 1. Capture ALL options immediately (before any filtering happens)
+        // We skip the first one because it is the "Select your desired role..." placeholder
+        allRoleOptions = Array.from(
+          roleSelect.querySelectorAll("option")
+        ).slice(1);
+
+        // 2. Initialize filtering based on default selection
+        if (document.getElementById("category-filter")) {
+          filterRoles();
+        }
+
+        // 3. Add animation for industry icons
+        document.querySelectorAll(".feature-icon").forEach((icon, index) => {
+          setTimeout(() => {
+            icon.style.animation = "float 3s ease-in-out infinite";
+          }, index * 200);
+        });
+      });
+
+      // Role filtering by category
+      function filterRoles() {
+        const category = document.getElementById("category-filter").value;
+        const roleSelect = document.getElementById("role-select");
+
+        // Reset: Clear everything and add back the placeholder
+        roleSelect.innerHTML =
+          '<option value="">Select your desired role...</option>';
+
+        // Filter from the stored ORIGINAL list, not the current DOM list
+        allRoleOptions.forEach((option) => {
+          if (category === "all" || option.dataset.category === category) {
+            roleSelect.appendChild(option.cloneNode(true));
+          }
+        });
+      }
+
+      // Industry-specific tips
+      const industryTips = {
+        Legal:
+          "Focus on certifications (Bar), case experience, and ethical considerations.",
+        Medical:
+          "Highlight licenses, specialties, patient care experience, and CME credits.",
+        Finance:
+          "Emphasize certifications (CA/CPA), analytical skills, and compliance knowledge.",
+        Technology:
+          "Showcase technical skills, projects, and continuous learning.",
+        Engineering:
+          "Highlight design experience, certifications, and project management.",
+        Business: "Focus on leadership, strategy, and measurable achievements.",
+        Education:
+          "Showcase teaching experience, certifications, and curriculum development.",
+        Creative: "Highlight portfolio, creative process, and client projects.",
+      };
+
+      // Update tips based on category selection
+      document
+        .getElementById("category-filter")
+        ?.addEventListener("change", function () {
+          const tip =
+            industryTips[this.value] ||
+            "Upload your resume for comprehensive analysis.";
+          const fileHint = document.querySelector(".file-hint");
+          if (fileHint) {
+            fileHint.innerHTML = `Maximum file size: 10MB<br><small style="color: var(--primary);">💡 ${tip}</small>`;
+          }
+        });
+    </script>
+  </body>
+</html>

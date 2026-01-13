@@ -1,0 +1,70 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error - SkillBridge AI</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <!-- Animated Background -->
+    <div class="animated-background">
+        <div class="morph-shape morph-shape-1"></div>
+        <div class="morph-shape morph-shape-2"></div>
+        <div class="morph-shape morph-shape-3"></div>
+        <div class="floating-dots"></div>
+    </div>
+
+    <div class="main-container">
+        <header class="header">
+            <a href="/" class="logo">
+                <div class="logo-icon">🔗</div>
+                <div class="logo-text">SkillBridge AI</div>
+            </a>
+        </header>
+
+        <div class="glass-card" style="text-align: center; max-width: 600px; margin: 0 auto;">
+            <div style="margin-bottom: 2rem;">
+                <div style="width: 80px; height: 80px; background: rgba(239, 68, 68, 0.1); color: var(--danger); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem; font-size: 2rem;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <h2 style="font-size: 2rem; font-weight: 700; color: var(--gray-900); margin-bottom: 1rem;">
+                    Oops! Something went wrong
+                </h2>
+                <p style="color: var(--gray-600); font-size: 1.125rem; margin-bottom: 1.5rem;">
+                    {{ error }}
+                </p>
+                {% if suggestion %}
+                <div style="background: rgba(245, 158, 11, 0.1); border-radius: var(--radius); padding: 1rem; margin-bottom: 1.5rem;">
+                    <p style="color: var(--warning); margin-bottom: 0.5rem;">
+                        <i class="fas fa-lightbulb"></i> Suggestion
+                    </p>
+                    <p style="color: var(--gray-600);">
+                        {{ suggestion }}
+                    </p>
+                </div>
+                {% endif %}
+            </div>
+
+            <div style="display: flex; gap: 1rem; justify-content: center;">
+                <a href="/" class="btn btn-primary">
+                    <i class="fas fa-home"></i> Back to Home
+                </a>
+                <a href="/demo" class="btn btn-secondary">
+                    <i class="fas fa-play-circle"></i> View Demo
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto redirect after 10 seconds
+        setTimeout(() => {
+            window.location.href = '/';
+        }, 10000);
+    </script>
+</body>
+</html>
